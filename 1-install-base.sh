@@ -49,7 +49,7 @@ secret "$SECRET_KEY";
 mtu $VPN_MTU;
 peer limit 2;
 include peers from "peers";
-on up "ip link set up dev \$INTERFACE; batctl meshif bat0 if add \$INTERFACE";
+on up "ip link set up dev \$INTERFACE; batctl meshif bat0 if add \$INTERFACE; dhclient -nw br-ff &";
 on down "batctl meshif bat0 if del \$INTERFACE";
 EOF
 
@@ -73,7 +73,7 @@ iface $CLIENT_IF inet manual
     vlan-raw-device $BASE_IF
     up ip link set \$IFACE up
 
-# VLAN 20: Echtes B.A.T.M.A.N.-Mesh-Interface (kommt direkt in bat0!)
+# VLAN 20: Echtes B.A.T.M.A.N.-Mesh-Interface (kommt direkt in bat0)
 auto $MESH_IF
 iface $MESH_IF inet manual
     vlan-raw-device $BASE_IF
@@ -88,12 +88,13 @@ iface bat0 inet manual
     pre-up ip link add name bat0 type batadv
     pre-up ip link set dev bat0 mtu $VPN_MTU
     up ip link set \$IFACE up
+    post-up batctl meshif bat0 gw_mode client || true
     post-up batctl meshif bat0 if add $MESH_IF || true
     post-down ip link del bat0
 
 # Client-Bridge (bündelt NUR das fertige Client-Netz aus bat0 + VLAN 10)
 auto br-ff
-iface br-ff inet dhcp
+iface br-ff inet manual
     hwaddress ether $FIXED_MAC
     bridge_ports $CLIENT_IF bat0
     bridge_stp off
@@ -101,6 +102,7 @@ iface br-ff inet dhcp
     bridge_fd 0
     pre-up sysctl -w net.ipv6.conf.br-ff.disable_ipv6=0 || true
     pre-up sysctl -w net.ipv6.conf.br-ff.accept_ra=1 || true
+    up ip link set \$IFACE up
     post-up ip rule add from 10.23.0.0/18 table 42 || true
     post-up ip route add 10.23.0.0/18 dev br-ff table 42 || true
     post-up ip route add default via 10.23.0.1 dev br-ff table 42 || true
@@ -113,4 +115,4 @@ if [ -d /etc/NetworkManager/conf.d ]; then
 fi
 
 systemctl enable networking fastd@ffmsn
-echo "TEIL 1 FERTIG! VLAN 20 -> bat0 (Mesh) | VLAN 10 + bat0 -> br-ff (Client)"
+echo "TEIL 1 FERTIG! Feste Bridge-MAC: $FIXED_MAC | Public Key: $(cat /etc/fastd/ffmsn/public.key)"
